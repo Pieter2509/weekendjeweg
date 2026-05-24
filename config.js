@@ -27,3 +27,10 @@ export const ADMIN_PASSWORD = "HollPi2509!";
 // Globale deadline voor voorspellingen
 // null = geen globale deadline, alleen per-wedstrijd 1 uur voor aftrap
 export const PREDICTION_DEADLINE = null;
+
+// === AFTELTELLER ===
+// Datum van het weekendje weg (verschijnt als aftelteller in de header)
+// Format: ISO datetime "YYYY-MM-DDTHH:MM:SS"
+// null = geen aftelteller tonen
+export const COUNTDOWN_DATE = "2026-11-12T12:00:00";
+export const COUNTDOWN_LABEL = "Weekendje weg over";
