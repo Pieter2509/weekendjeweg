@@ -445,27 +445,35 @@ async function runAutoSync(silent = false) {
   updateSyncStatus("Bezig met synchroniseren...");
 
   try {
-    const stats = await syncResults(state.results, async (matchId, home, away) => {
-      await setDoc(doc(db, "results", matchId), {
-        home: Number(home),
-        away: Number(away),
+    const result = await syncResults(state.results);
+    // result = { source, updates: [{matchId, home, away}], errors: [] }
+    
+    let synced = 0;
+    for (const update of result.updates) {
+      await setDoc(doc(db, "results", update.matchId), {
+        home: Number(update.home),
+        away: Number(update.away),
         updatedAt: serverTimestamp(),
-        source: "openfootball",
+        source: result.source,
       });
-      state.results[matchId] = { home: Number(home), away: Number(away) };
-    });
+      state.results[update.matchId] = { home: Number(update.home), away: Number(update.away) };
+      synced++;
+    }
 
     state.lastSyncTime = new Date();
-    state.lastSyncStats = stats;
+    state.lastSyncStats = { synced, errors: result.errors, source: result.source };
 
     if (!silent) {
-      if (stats.synced > 0) {
-        showBanner(`${stats.synced} nieuwe uitslag${stats.synced > 1 ? 'en' : ''} gesynchroniseerd`, "success");
-      } else if (stats.errors.length > 0) {
-        showBanner(`Sync klaar met ${stats.errors.length} fout(en). Check console.`, "warning");
-        console.warn("Sync errors:", stats.errors);
+      if (synced > 0) {
+        const sourceLabel = result.source === "api-football" ? "API-Football" : "openfootball";
+        showBanner(`${synced} nieuwe uitslag${synced > 1 ? 'en' : ''} gesynchroniseerd (via ${sourceLabel})`, "success");
+      } else if (result.errors.length > 0) {
+        showBanner(`Sync klaar met ${result.errors.length} fout(en). Check console.`, "warning");
+        console.warn("Sync errors:", result.errors);
       } else {
-        showBanner("Alles is up-to-date", "success", 2000);
+        const sourceLabel = result.source === "api-football" ? "API-Football" : 
+                            result.source === "openfootball" ? "openfootball" : "geen bron";
+        showBanner(`Alles is up-to-date (${sourceLabel})`, "success", 2000);
       }
     }
 
@@ -491,7 +499,7 @@ function toggleAutoSync() {
   } else {
     // Sync direct, dan elke 5 minuten
     runAutoSync(true);
-    state.autoSyncInterval = setInterval(() => runAutoSync(true), 5 * 60 * 1000);
+    state.autoSyncInterval = setInterval(() => runAutoSync(true), 2 * 60 * 1000);
     state.autoSyncEnabled = true;
     localStorage.setItem("wk2026-autosync", "true");
     showBanner("Auto-sync aan: elke 5 minuten", "success");
@@ -512,7 +520,11 @@ function updateSyncStatus(message) {
     const timeStr = `${String(time.getHours()).padStart(2,'0')}:${String(time.getMinutes()).padStart(2,'0')}`;
     const s = state.lastSyncStats;
     if (s) {
-      statusEl.textContent = `Laatst gesynchroniseerd om ${timeStr}: ${s.synced} nieuw, ${s.skipped} bestaand, ${s.unmatched} niet gekoppeld`;
+      const sourceLabel = s.source === "api-football" ? "API-Football" : 
+                          s.source === "openfootball" ? "openfootball" : "geen bron";
+      const errorCount = s.errors ? s.errors.length : 0;
+      const errorText = errorCount > 0 ? `, ${errorCount} fout(en)` : "";
+      statusEl.textContent = `Laatst gesynchroniseerd om ${timeStr} via ${sourceLabel}: ${s.synced} nieuw${errorText}`;
     } else {
       statusEl.textContent = `Laatst gesynchroniseerd om ${timeStr}`;
     }
@@ -1129,7 +1141,7 @@ function renderAdmin() {
       <div class="sync-header">
         <div>
           <h3>Automatische uitslagen</h3>
-          <p class="sync-desc">Haal uitslagen direct op uit openfootball/worldcup.json (gratis open data, geen API-key nodig).</p>
+          <p class="sync-desc">Live uitslagen via API-Football (primair) en openfootball (backup). Sync elke 2 minuten.</p>
         </div>
       </div>
       <div class="sync-actions">
@@ -1390,7 +1402,6 @@ function updateCountdown() {
   const diff = target - now;
 
   if (diff <= 0) {
-    // Datum is al verstreken
     el.innerHTML = `<div class="countdown-label">Het weekendje is begonnen!</div>`;
     if (countdownInterval) {
       clearInterval(countdownInterval);
@@ -1495,15 +1506,15 @@ function init() {
     const pw = document.getElementById("admin-password").value;
     if (pw === ADMIN_PASSWORD) {
       state.isAdmin = true;
-      // Herstel auto-sync als die eerder aanstond
-      const wasEnabled = localStorage.getItem("wk2026-autosync") === "true";
-      if (wasEnabled && !state.autoSyncInterval) {
+      // Auto-sync ALTIJD aanzetten bij admin login (geen uitzonderingen)
+      if (!state.autoSyncInterval) {
         runAutoSync(true);
-        state.autoSyncInterval = setInterval(() => runAutoSync(true), 5 * 60 * 1000);
+        state.autoSyncInterval = setInterval(() => runAutoSync(true), 2 * 60 * 1000);
         state.autoSyncEnabled = true;
+        localStorage.setItem("wk2026-autosync", "true");
       }
       renderAdmin();
-      showBanner("Beheer geopend" + (wasEnabled ? ", auto-sync hervat" : ""), "success");
+      showBanner("Beheer geopend, auto-sync gestart", "success");
     } else {
       showBanner("Onjuist wachtwoord", "error");
     }
